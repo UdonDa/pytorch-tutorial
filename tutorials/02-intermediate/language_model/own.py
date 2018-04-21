@@ -82,7 +82,7 @@ with open(sample_path, 'w') as f:
     state = (Variable(torch.zeros(num_layers, 1, hidden_size)).cuda(),
             Variable(torch.zeros(num_layers, 1, hidden_size)).cuda())
     # Select one word id randomly
-    prob = torch.one(vocab_size)
+    prob = torch.ones(vocab_size)
     input = Variable(torch.multinomial(prob, num_samples=1).unsqueeze(1),
         volatile=True).cuda()
 

@@ -1,45 +1,49 @@
-# Implementation of https://arxiv.org/pdf/1512.03385.pdf/
-# See section 4.2 for model architecture on CIFAR-10.
-# Some part of the code was referenced below.
-# https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py
-import torch 
+import torch
 import torch.nn as nn
 import torchvision.datasets as dsets
 import torchvision.transforms as transforms
 from torch.autograd import Variable
 
-# Image Preprocessing 
+# Hyper Parameter
+batch_size = 100
+num_classes = 10
+num_epochs = 80
+learning_late = 1e-3
+
 transform = transforms.Compose([
     transforms.Scale(40),
     transforms.RandomHorizontalFlip(),
     transforms.RandomCrop(32),
-    transforms.ToTensor()])
+    transforms.ToTensor()
+])
 
-# CIFAR-10 Dataset
-train_dataset = dsets.CIFAR10(root='./data/',
-                               train=True, 
-                               transform=transform,
-                               download=True)
+train_dataset = dsets.CIFAR10(
+    root = './data/',
+    train = True,
+    transform = transform,
+    download = True
+)
+test_dataset  = dsets.CIFAR10(
+    root = './data/',
+    train = False,
+    transform = transforms.ToTensor(),
+    download = False
+)
 
-test_dataset = dsets.CIFAR10(root='./data/',
-                              train=False, 
-                              transform=transforms.ToTensor())
+train_loader = torch.utils.data.DataLoader(
+    dataset = train_dataset,
+    batch_size = batch_size,
+    shuffle = True 
+)
+test_loader = torch.utils.data.DataLoader(
+    dataset = test_dataset,
+    batch_size = batch_size,
+    shuffle = False
+)
 
-# Data Loader (Input Pipeline)
-train_loader = torch.utils.data.DataLoader(dataset=train_dataset,
-                                           batch_size=100, 
-                                           shuffle=True)
-
-test_loader = torch.utils.data.DataLoader(dataset=test_dataset,
-                                          batch_size=100, 
-                                          shuffle=False)
-
-# 3x3 Convolution
 def conv3x3(in_channels, out_channels, stride=1):
-    return nn.Conv2d(in_channels, out_channels, kernel_size=3, 
-                     stride=stride, padding=1, bias=False)
+    return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
 
-# Residual Block
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1, downsample=None):
         super(ResidualBlock, self).__init__()
@@ -49,7 +53,7 @@ class ResidualBlock(nn.Module):
         self.conv2 = conv3x3(out_channels, out_channels)
         self.bn2 = nn.BatchNorm2d(out_channels)
         self.downsample = downsample
-        
+    
     def forward(self, x):
         residual = x
         out = self.conv1(x)
@@ -59,11 +63,11 @@ class ResidualBlock(nn.Module):
         out = self.bn2(out)
         if self.downsample:
             residual = self.downsample(x)
+        # 最後にくっつけるResidualBlockのあれ.　論文通り
         out += residual
         out = self.relu(out)
         return out
 
-# ResNet Module
 class ResNet(nn.Module):
     def __init__(self, block, layers, num_classes=10):
         super(ResNet, self).__init__()
@@ -76,7 +80,7 @@ class ResNet(nn.Module):
         self.layer3 = self.make_layer(block, 64, layers[1], 2)
         self.avg_pool = nn.AvgPool2d(8)
         self.fc = nn.Linear(64, num_classes)
-        
+     
     def make_layer(self, block, out_channels, blocks, stride=1):
         downsample = None
         if (stride != 1) or (self.in_channels != out_channels):
@@ -88,12 +92,12 @@ class ResNet(nn.Module):
                 ),
                 nn.BatchNorm2d(out_channels)
             )
-        layers = []
-        layers.append(block(self.in_channels, out_channels, stride, downsample))
-        self.in_channels = out_channels
-        for i in range(1, blocks):
-            layers.append(block(out_channels, out_channels))
-        return nn.Sequential(*layers)
+            layers = []
+            layers.append(block(self.in_channels, out_channels, stride, downsample))
+            self.in_channels = out_channels
+            for _ in range(1, blocks):
+                layers.append(block(out_channels, out_channels))
+            return nn.Sequential(*layers)
     
     def forward(self, x):
         out = self.conv(x)
@@ -106,39 +110,35 @@ class ResNet(nn.Module):
         out = out.view(out.size(0), -1)
         out = self.fc(out)
         return out
-    
+
 resnet = ResNet(ResidualBlock, [3, 3, 3])
 resnet.cuda()
 
 # Loss and Optimizer
 criterion = nn.CrossEntropyLoss()
-lr = 0.001
-optimizer = torch.optim.Adam(resnet.parameters(), lr=lr)
-    
-# Training 
-for epoch in range(80):
+optimizer = torch.optim.Adam(resnet.parameters(), lr=learning_late)
+
+# Train
+for epoch in range(num_epochs):
     for i, (images, labels) in enumerate(train_loader):
         images = Variable(images.cuda())
         labels = Variable(labels.cuda())
-        
-        # Forward + Backward + Optimize
+
         optimizer.zero_grad()
         outputs = resnet(images)
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
-        
-        if (i+1) % 100 == 0:
-            print ("Epoch [%d/%d], Iter [%d/%d] Loss: %.4f" %(epoch+1, 80, i+1, 500, loss.data[0]))
 
-    # Decaying Learning Rate
+        if (i+1) % 100 == 0:
+            print("Epoch: {}/{}, Iter: {}/{}, Loss: {}".format(epoch+1, num_epochs, i+1, len(train_dataset) // batch_size, loss.data[0]))
+
     if (epoch+1) % 20 == 0:
-        lr /= 3
-        optimizer = torch.optim.Adam(resnet.parameters(), lr=lr) 
-        
+        learning_late /= 3
+        optimizer = torch.optim.Adam(resnet.parameters(), lr=learning_late)
+
 # Test
-correct = 0
-total = 0
+correct, total = 0, 0
 for images, labels in test_loader:
     images = Variable(images.cuda())
     outputs = resnet(images)
@@ -146,7 +146,4 @@ for images, labels in test_loader:
     total += labels.size(0)
     correct += (predicted.cpu() == labels).sum()
 
-print('Accuracy of the model on the test images: %d %%' % (100 * correct / total))
-
-# Save the Model
-torch.save(resnet.state_dict(), 'resnet.pkl')
+print("Accuract: {}".format(100 * correct / total))

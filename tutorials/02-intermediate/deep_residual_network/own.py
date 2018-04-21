@@ -92,12 +92,12 @@ class ResNet(nn.Module):
                 ),
                 nn.BatchNorm2d(out_channels)
             )
-            layers = []
-            layers.append(block(self.in_channels, out_channels, stride, downsample))
-            self.in_channels = out_channels
-            for _ in range(1, blocks):
-                layers.append(block(out_channels, out_channels))
-            return nn.Sequential(*layers)
+        layers = []
+        layers.append(block(self.in_channels, out_channels, stride, downsample))
+        self.in_channels = out_channels
+        for _ in range(1, blocks):
+            layers.append(block(out_channels, out_channels))
+        return nn.Sequential(*layers)
     
     def forward(self, x):
         out = self.conv(x)
@@ -112,6 +112,11 @@ class ResNet(nn.Module):
         return out
 
 resnet = ResNet(ResidualBlock, [3, 3, 3])
+# if torch.cuda.device_count() > 1:
+#   print("Let's use", torch.cuda.device_count(), "GPUs!")
+#   resnet = nn.DataParallel(resnet)
+# if torch.cuda.is_available():
+#    resnet.cuda()
 resnet.cuda()
 
 # Loss and Optimizer
